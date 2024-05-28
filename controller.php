@@ -1,4 +1,5 @@
-<?php 
+<?php
+ 
 function plugin_controller($posted, $OnError, $isParsing)
 {
     global $wpdb;
@@ -6,18 +7,29 @@ function plugin_controller($posted, $OnError, $isParsing)
     $brand_table =  $wpdb->prefix . '_brands';
     $categories_table = $wpdb->prefix . '_categories';
     $info_table = $wpdb->prefix . '_inventory_info';
+    $update_table = $wpdb->prefix . '_update_info';
     if (isset($posted['reset'])){
         $wpdb->query("UPDATE $table_name SET first = 0");
         $wpdb->query("UPDATE $table_name SET second = 0");
         $wpdb->query("UPDATE $table_name SET third = 0");
         $wpdb->query("UPDATE $table_name SET fourth = 0");
         $wpdb->query("UPDATE $table_name SET fifth = 0");
+        $wpdb->query("UPDATE $table_name SET import_start = 0");
         $wpdb->query("UPDATE $table_name SET setup = 0");
         $wpdb->query("UPDATE $table_name SET xml = 'null'");
         $wpdb->query("UPDATE $table_name SET xml_stock = 'null'");
         $wpdb->query("DELETE FROM $brand_table");
         $wpdb->query("DELETE FROM $categories_table");
         $wpdb->query("DELETE FROM $info_table");
+        $wpdb->query("UPDATE $update_table SET total = 0");
+        $wpdb->query("UPDATE $update_table SET counter = 0");
+        $wpdb->query("UPDATE $update_table SET update_status = 0");
+        $wpdb->query("UPDATE $update_table SET current_uploaded = 0");
+        $wpdb->query("UPDATE $update_table SET esauriti = 0");
+        $wpdb->query("UPDATE $update_table SET falliti = 0");
+        $wpdb->query("UPDATE $update_table SET import_total = 0");
+        $wpdb->query("UPDATE $update_table SET cicli_total = 0");
+        $wpdb->query("UPDATE $update_table SET cicli_completed = 0");
         wc_delete_product_transients();
 
         echo '<script>window.location.href = window.location.href;</script>';
@@ -32,15 +44,13 @@ function plugin_controller($posted, $OnError, $isParsing)
             {
                 $slug = '_' . $brand->id;
                 $new_percentage = $posted[$slug];
-                // Esegui la query di aggiornamento solo se la percentuale è stata fornita
                 if (!empty($new_percentage)) {
-                    // Esegui la query di aggiornamento
                     $wpdb->update(
                         $brand_table,
                         array('percentage' => $new_percentage),
                         array('name' => $brand->name),
-                        array('%s'), // Formato per la percentuale (stringa)
-                        array('%s')  // Formato per il nome del brand
+                        array('%s'), 
+                        array('%s')  
                     );
                 }
             }
@@ -55,6 +65,52 @@ function plugin_controller($posted, $OnError, $isParsing)
         exit(); 
 
     }
+    if (isset($posted['BrandUpdate']))
+    {
+        $brands = $wpdb->get_results("SELECT * FROM $brand_table");
+        if (!isset($posted['default_all']) || empty($posted['default_all'])) {
+            foreach ($brands as $brand)
+            {
+                $slug = '_' . $brand->id;
+                $new_percentage = $posted[$slug];
+                if (!empty($new_percentage)) {
+                    $wpdb->update(
+                        $brand_table,
+                        array('percentage' => $new_percentage),
+                        array('name' => $brand->name),
+                        array('%s'), 
+                        array('%s')  
+                    );
+                }
+            }
+        }
+        else
+        {
+            $default_all = sanitize_text_field($posted['default_all']);
+            $wpdb->query("UPDATE $brand_table SET percentage = $default_all");
+        }
+        $file_path = $wpdb->get_var("SELECT xml FROM $table_name");
+        $file_content = file_get_contents($file_path);
+        $xml = simplexml_load_string($file_content);
+        foreach($xml->product as $product)
+        {
+            $sku = (string)$product->sku;
+            $prod_id = wc_get_product_id_by_sku($sku);
+            if ($prod_id)
+            {
+                $brand_table =  $wpdb->prefix . '_brands';
+                $brand_perc = $wpdb->get_var("SELECT percentage FROM $brand_table WHERE name = '{$product->brand}'");
+                $prod = wc_get_product($prod_id);
+                
+                $prod->set_regular_price((float)$product->price * (float)$brand_perc);
+                $prod->save();
+            }
+        }
+        
+        
+        echo '<script>window.location.href = window.location.href;</script>';
+        exit();
+    }
     if (isset($posted['CatSave']))
     {
         $categories_table = $wpdb->prefix . '_categories';
@@ -68,20 +124,69 @@ function plugin_controller($posted, $OnError, $isParsing)
                 
                 $new_cat = $posted[$slug];
                 $selected_category = get_term_by('id', $new_cat, 'product_cat');
-                // Esegui la query di aggiornamento solo se la percentuale è stata fornita
                 if (!empty($selected_category)) {
-                    // Esegui la query di aggiornamento
                     $wpdb->update(
                         $categories_table,
                         array('category_dest' => $selected_category->name),
                         array('category_source' => $categorie->category_source),
-                        array('%s'), // Formato per la percentuale (stringa)
-                        array('%s')  // Formato per il nome del brand
+                        array('%s'),
+                        array('%s')  
                     );
                 }
             }
         }
         $wpdb->query("UPDATE $table_name SET fourth = 1");
+        echo '<script>window.location.href = window.location.href;</script>';
+        exit(); 
+    }
+    if (isset($posted['CatUpdate']))
+    {
+        $categories_table = $wpdb->prefix . '_categories';
+        $categories = $wpdb->get_results("SELECT * FROM $categories_table");
+        foreach ($categories as $categorie)
+        {   
+            if ($categorie->id !== '1')
+            {
+                    $slug =  '_' .  $categorie->id;
+                
+                $new_cat = $posted[$slug];
+                $selected_category = get_term_by('id', $new_cat, 'product_cat');
+                error_log("diocandeldio ".$categorie->category_source);
+                if (!empty($selected_category)) {
+                    $wpdb->update(
+                        $categories_table,
+                        array('category_dest' => $selected_category->name),
+                        array('category_source' => $categorie->category_source),
+                        array('%s'),
+                        array('%s')  
+                    );
+                }
+            }
+        }
+        $file_path = $wpdb->get_var("SELECT xml FROM $table_name");
+        $file_content = file_get_contents($file_path);
+        $xml = simplexml_load_string($file_content);
+        foreach($xml->product as $product)
+        {
+            $sku = (string)$product->sku;
+            $prod_id = wc_get_product_id_by_sku($sku);
+            if ($prod_id)
+            {
+                $escaped_category = $wpdb->prepare('%s', (string)$product->category);
+                $sql_query = "SELECT category_dest FROM $categories_table WHERE category_source = " . $escaped_category;
+                $prod_cat_dest = $wpdb->get_var($sql_query);
+                $prod_categories = wp_get_object_terms( $prod_id, 'product_cat', array( 'fields' => 'ids' ) );
+
+                // Rimuovi tutte le categorie assegnate al prodotto
+                if ( !empty( $prod_categories ) ) {
+                    foreach ( $prod_categories as $prod_category ) {
+                        wp_remove_object_terms( $prod_id, $prod_category->name, 'product_cat' );
+                    }
+                }
+                wp_set_object_terms($prod_id, $prod_cat_dest, 'product_cat'); 
+                //error_log("diocan ".$product->category." porcodi ". $prod_cat_dest . " madonnatrò ". $prod_id);
+            }
+        }
         echo '<script>window.location.href = window.location.href;</script>';
         exit(); 
     }
@@ -93,7 +198,6 @@ function plugin_controller($posted, $OnError, $isParsing)
             $id = $wpdb->get_var("SELECT id FROM $info_table");
             if ($id)
             {
-                // Se l'ID è valido, procedi con l'aggiornamento
                 $height = $posted['altezz'];
                 $width = $posted['larghezz'];
                 $wpdb->update(
@@ -106,8 +210,8 @@ function plugin_controller($posted, $OnError, $isParsing)
                         'id' => $id,
                     ),
                     array(
-                        '%s', // Formato per 'img_width'
-                        '%s' // Formato per 'img_height'
+                        '%s', 
+                        '%s' 
                     )
                 );
             }
@@ -122,8 +226,8 @@ function plugin_controller($posted, $OnError, $isParsing)
                         'img_height' => $height,
                     ),
                     array(
-                        '%s', // Formato per 'img_width'
-                        '%s' // Formato per 'img_height'
+                        '%s', 
+                        '%s' 
                     )
                 );
             }
@@ -167,6 +271,10 @@ function plugin_controller($posted, $OnError, $isParsing)
     { 
         remove_from_trash();
     }
+    if (isset($posted['delete']))
+    {
+        delete_all();
+    }
     if (isset($posted['file_link'])) {
         $flag = true;
         $submitted_xml = $posted['xml_file'];
@@ -197,20 +305,18 @@ function plugin_controller($posted, $OnError, $isParsing)
         }
     }
     if (isset($posted['import'])) 
-    {
-        exec('php ' . plugin_dir_path(__FILE__) . 'import.php > /dev/null 2>&1 &');
-/*         $submitted_xml = $wpdb->get_var("SELECT xml_stock FROM $table_name");
-        $prod_info = array();
-        $prod_info = leggiFileSTOCKXML($submitted_xml);
-        file_import($table_name, $wpdb, $prod_info); */
-        $wpdb->query("UPDATE $table_name SET setup = 1");
+    {   
+        get_total();
+        $update_table = $wpdb->prefix . '_update_info';
+        $wpdb->query("UPDATE $table_name SET import_start = 1");
+        $wpdb->query("UPDATE $update_table SET update_status = 1");
         echo '<script>window.location.href = window.location.href;</script>';
         exit();  
+
     }    
 }
 
 function leggiFileXML($file_path) {
-    // Verifica se il file esiste
 
     global $wpdb;
     $brands = array();
@@ -220,30 +326,14 @@ function leggiFileXML($file_path) {
     if (!$file_content) {
         return false;
     }
-
-
-    // Analizza il contenuto XML
     $xml = simplexml_load_string($file_content);
-
-    // Inizializza un array per contenere i prodotti
     $prodotti = array();
     $file_path = '../wp-content/plugins/asd1/log.txt';
-    // Itera sui prodotti nel file XML
-
     foreach ($xml->product as $product) {
-/*         $prodotto = array(
-            'name' => (string)$product->name,
-            'brand' => (string)$product->brand,
-            'cathegory' => (string)$product->cathegory,
-            'description' => (string)$product->description,
-            'sku' => (string)$product->sku,
-            'price' => (string)$product->price,
-        ); */
         if (!in_array_custom((string)$product->brand, $brands))
         {
             $brands[] = $product->brand; 
         }
-
         if (!in_array_custom((string)$product->category, $categorie))
         {
             $categorie[] = $product->category;
@@ -260,7 +350,7 @@ function leggiFileXML($file_path) {
             $brand_table,
             array(
                 'name' => (string)$brand,
-                'percentage' => '1' // Valore predefinito per la percentuale
+                'percentage' => '1'
             ),
             array('%s', '%s')
         );
@@ -274,13 +364,11 @@ function leggiFileXML($file_path) {
             $categories_table,
             array(
                 'category_source' => (string)$category,
-                'category_dest' => 'none' // Valore predefinito per la percentuale
+                'category_dest' => 'none'
             ),
             array('%s', '%s')
         );
-
     }
-
     $isParsing = true;
     return $prodotti;
 }

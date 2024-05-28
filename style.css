@@ -21,17 +21,17 @@
         column-gap: 20px; 
         list-style-type: none; 
         text-align: right;
-        padding: 10px 10%;
+        padding: 10px 6%;
 }
 
 .list_span{
     margin-right: 9px;
     font-weight: 700;
-    font-size: 17px !important;
+    font-size: 14px !important;
 }
 
-.btn_primary{
-    margin: 1% 0 1% 0;
+.button_margin{
+    margin: 1% 0 1% 0 !important;
 }
 
 .filestep_title {
@@ -42,6 +42,9 @@
     margin-bottom: 1%;
 }
 
+.cat_selector {
+    max-width: 7rem !important;
+}
 
 /* stile bottone */
 body {
@@ -85,4 +88,45 @@ body {
     background-color: #f44336;
     color: white;
   }
-  
+
+  /* Stile per le schede */
+  .progress-bar {
+    width: 100%;
+    background-color: #f70101;
+    height: 20px;
+    }
+
+    .progress {
+    width: 0%;
+    height: 100%;
+    background-color: #0be812;
+    }
+    .tabs {
+        overflow: hidden;
+        border-bottom: 1px solid #ccc;
+        margin-bottom: 20px;
+    }
+
+    .tablinks {
+        background-color: #f2f2f2;
+        float: left;
+        border: 1px solid #ccc;
+        outline: none;
+        cursor: pointer;
+        padding: 10px 20px;
+        transition: background-color 0.3s;
+    }
+
+    .tablinks:hover {
+        background-color: #ddd;
+    }
+
+    .tablinks.active {
+        background-color: #fff;
+        border-bottom: none;
+    }
+
+    .tabcontent {
+        display: none;
+        padding: 20px;
+    }

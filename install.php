@@ -8,6 +8,7 @@ function custom_plugin_activation() {
     $brand_table =  $wpdb->prefix . '_brands';
     $categories_table = $wpdb->prefix . '_categories';
     $info_table = $wpdb->prefix . '_inventory_info';
+    $update_table = $wpdb->prefix . '_update_info';
     // TABELLA FLAGS SETUP INIZIALE
     $sql = "CREATE TABLE IF NOT EXISTS $table_name (
         id INT NOT NULL AUTO_INCREMENT,
@@ -16,6 +17,7 @@ function custom_plugin_activation() {
         third TINYINT(1) NOT NULL DEFAULT 0,
         fourth TINYINT(1) NOT NULL DEFAULT 0,
         fifth TINYINT (1) NOT NULL DEFAULT 0,
+        import_start TINYINT (1) NOT NULL DEFAULT 0,
         setup TINYINT (1) NOT NULL DEFAULT 0,
         xml VARCHAR(128) NOT NULL DEFAULT 'null',
         xml_stock VARCHAR(128) NOT NULL DEFAULT 'null',
@@ -41,13 +43,26 @@ function custom_plugin_activation() {
         img_height VARCHAR(48) NOT NULL DEFAULT 'none',
         PRIMARY KEY (id)
     ) ENGINE=InnoDB";
+    $sql5 = "CREATE TABLE IF NOT EXISTS $update_table (
+        id INT NOT NULL AUTO_INCREMENT,
+        update_status TINYINT(1) NOT NULL DEFAULT 0,
+        counter INT NOT NULL DEFAULT 0,
+        total INT NOT NULL DEFAULT 0,
+        current_uploaded INT NOT NULL DEFAULT 0,
+        esauriti INT NOT NULL DEFAULT 0,
+        falliti INT NOT NULL DEFAULT 0,
+        import_total INT NOT NULL DEFAULT 0,
+        cicli_total INT NOT NULL DEFAULT 0,
+        cicli_completed INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (id)
+    ) ENGINE=InnoDB";
     // Esegui la query per creare la tabella
     require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
     $wpdb->query($sql2);
     $wpdb->query($sql);
     $wpdb->query($sql3);
     $wpdb->query($sql4);
-    
+    $wpdb->query($sql5);
     // Inserisci la voce predefinita nella tabella
     $wpdb->insert(
         $table_name,
@@ -57,10 +72,10 @@ function custom_plugin_activation() {
             'third' => 0,
             'fourth' => 0,
             'fifth' => 0,
+            'import_start' => 0,
             'setup' => 0,
             'xml' => 'null',
             'xml_stock' => 'null',
-            'success' => 0,
         )
     );
 
@@ -87,6 +102,20 @@ function custom_plugin_activation() {
             'img_height' => 'none',
         )
     );
+    $wpdb->insert(
+        $update_table,
+        array(
+            'update_status' => 0,
+            'counter' => 0,
+            'total' => 0,
+            'current_uploaded' => 0,
+            'esauriti' => 0,
+            'falliti' => 0,
+            'import_total' => 0,
+            'cicli_total' => 0,
+            'cicli_completed' => 0,
+        )
+    );
 }
 
 function custom_plugin_menu() {
@@ -94,45 +123,64 @@ function custom_plugin_menu() {
      // -- > ICONA CUSTOM MENU ADMIN $icona = plugin_dir_url( __FILE__ ) . 'icon/IconTina1.svg';
     $plugin_url = plugin_dir_url(__FILE__);
 
-    // Aggiungi stili per il pannello di amministrazione
     wp_enqueue_style('custom-plugin-style', $plugin_url . 'style.css');
 
-    // Aggiungi script per il pannello di amministrazione
     wp_enqueue_script('custom-plugin-script', $plugin_url . 'script.js', array(), '1.0', true);
-
-    // Aggiungi il menu personalizzato
-    add_menu_page(
-        'ZetaStudioPlugin(per Tina)',   // Titolo della pagina
-        'ImporTina',                    // Etichetta del menu
-        'manage_options',               // Capacità richiesta per visualizzare il menu
-        'importa-prodotti',             // ID univoco del menu
-        'custom_plugin_page' ,          // Funzione che mostra il contenuto della pagina
-        'dashicons-edit-page',          // Icona del menu (opzionale)
-        75                              // Posizione del menu nel menu principale (opzionale)
+    // Parametri per la query
+    $args = array(
+        'status' => 'draft', // Filtra solo i prodotti in bozza
+        'limit' => -1, // Ottieni tutti i prodotti in bozza
     );
+
+    // Ottieni i prodotti in bozza
+    $products = wc_get_products($args);
+
+    // Conta il numero di prodotti in bozza
+    $count = count($products);
+    if ($count == 0)
+    {
+        add_menu_page(
+            'ZetaStudioPlugin(per Tina)',   // Titolo della pagina
+            'ImporTina',                    // Etichetta del menu
+            'manage_options',               // Capacità richiesta per visualizzare il menu
+            'importa-prodotti',             // ID univoco del menu
+            'custom_plugin_page' ,          // Funzione che mostra il contenuto della pagina
+            'dashicons-edit-page',          // Icona del menu (opzionale)
+            75                              // Posizione del menu nel menu principale (opzionale)
+        );
+    }
+    else
+    {
+        add_menu_page(
+            'ZetaStudioPlugin(per Tina)',   // Titolo della pagina
+            'ImporTina <span class="update-plugins count-' . $count . '"><span class="plugin-count">' . $count . '</span></span>',  // Etichetta del menu
+            'manage_options',               // Capacità richiesta per visualizzare il menu
+            'importa-prodotti',             // ID univoco del menu
+            'custom_plugin_page' ,          // Funzione che mostra il contenuto della pagina
+            'dashicons-edit-page',          // Icona del menu (opzionale)
+            75                              // Posizione del menu nel menu principale (opzionale)
+        );
+    }
 }
 
 function custom_plugin_uninstall() {
     global $wpdb;
 
-    // Elimina la tabella del database del plugin
     $table_name = $wpdb->prefix . '_imporTinaMainTab';
     $brand_table =  $wpdb->prefix . '_brands';
     $categories_table = $wpdb->prefix . '_categories';
     $inventory_info = $wpdb->prefix . '_inventory_info';
+    $update_table = $wpdb->prefix . '_update_info';
     $wpdb->query("DROP TABLE IF EXISTS $table_name");
     $wpdb->query("DROP TABLE IF EXISTS $brand_table");
     $wpdb->query("DROP TABLE IF EXISTS $categories_table");
     $wpdb->query("DROP TABLE IF EXISTS $inventory_info");
+    $wpdb->query("DROP TABLE IF EXISTS $update_table");
 
-
-    // Rimuovi eventuali opzioni o dati salvati nel database
     delete_option('nome_opzione_plugin');
-    // Aggiungi qui altri comandi per la pulizia
 
-    // Pulisci il registro dei plugin
     $plugins = get_option('active_plugins');
-    $plugin_to_remove = 'ImporTina/index.php'; // Path al file principale del tuo plugin
+    $plugin_to_remove = 'ImporTina/index.php';
     if (($key = array_search($plugin_to_remove, $plugins)) !== false) {
         unset($plugins[$key]);
         update_option('active_plugins', $plugins);

@@ -15,6 +15,11 @@ function showHardClean()
 {
   document.getElementById('hardclean').style.display = 'block';
 }
+function showDelete()
+{
+  document.getElementById('deleteall').style.display = 'block';
+
+}
 function showTrash()
 {
   document.getElementById('trashclean').style.display = 'block';
@@ -28,6 +33,7 @@ function showTrash()
   document.getElementById('softclean').style.display = 'none';
   document.getElementById('hardclean').style.display = 'none';
   document.getElementById('trashclean').style.display = 'none';
+  document.getElementById('deleteall').style.display = 'none';
   }
   
   function showbtn()

@@ -1,122 +1,214 @@
 <?php
-function modula_immagine($images, $sku, $dir_path, $new_dir_path, $webp_dir, $prodotto, $wpdb)
+function modula_immagine($images, $sku, $dir_path, $new_dir_path, $webp_dir, $prodotto, $wpdb, $setup)
  {   
-     $info_table = $wpdb->prefix . '_inventory_info';
-     $altezzaSet = $wpdb->get_var("SELECT img_height FROM $info_table");
-     $larghezzaSet = $wpdb->get_var("SELECT img_width FROM $info_table");
-     $converted_images = array();
-     $i = 0;
-     foreach ($images as $image_url)
-     {   
-         $destination = $dir_path . $sku . '_image_' . $i .'.jpeg';
-         $new_dest = $new_dir_path . $sku . "'_image_" . $i. '.jpeg';
-         $final_dest = $webp_dir . $sku . "'_image_" . $i. '.WEBP';
-         $ch = curl_init($image_url);
-         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-         $image_content = curl_exec($ch);
-     
-         if (curl_errno($ch)) {
-             echo 'Errore durante il download dell\'immagine: ' . curl_error($ch);
-         } else {
-             curl_close($ch);
-             
-             $image_info = exif_imagetype($image_url);
-             if ($image_info !== false) {
-                 if ($image_info === IMAGETYPE_JPEG) {
-                     file_put_contents($destination, $image_content);
-                 } else {
-                     $immagine_originale = imagecreatefromstring($image_content);
-                     if ($immagine_originale !== false) {
-                         imagejpeg($immagine_originale, $destination, 80);
-                         imagedestroy($immagine_originale);
-                     } else {
-                         echo 'Impossibile convertire l\'immagine in JPEG.';
-                     }
-                 }
-             } else {
-                 echo 'Impossibile determinare il tipo di immagine.';
-             }
-             
-             $converted_images[] = aggiungiBandeBianche($destination, $new_dest, $larghezzaSet, $altezzaSet, $final_dest, $webp_dir);
-         }
-         $i++;
-     }
-     inserisci_prodotto($prodotto, $webp_dir, $converted_images);
- }
- 
-
-
- function aggiungiBandeBianche($percorsoImmagineInput, $percorsoImmagineOutput, $larghezzaSet, $altezzaSet, $final_dest, $webp_dir) {
-  
-    $dimensioniOriginale = getimagesize($percorsoImmagineInput);
-    $larghezzaOriginale = $dimensioniOriginale[0];
-    $altezzaOriginale = $dimensioniOriginale[1];
-
-
-    $deltaLarg = $larghezzaOriginale - (int)$larghezzaSet;
-    $deltaAlt = $altezzaOriginale - (int)$altezzaSet;
-
-    if($deltaAlt >= $deltaLarg)
+    dl('imagick.so');
+    $info_table = $wpdb->prefix . '_inventory_info';
+    $altezzaSet = $wpdb->get_var("SELECT img_height FROM $info_table");
+    $larghezzaSet = $wpdb->get_var("SELECT img_width FROM $info_table");
+    $update_table = $wpdb->prefix . '_update_info';
+    $converted_images = array();
+    $i = 0;
+    $existing_product_id = wc_get_product_id_by_sku($prodotto['sku']);
+    if ((int)$prodotto['warehouse_stock'] < 0)
     {
-        $nuovaLarghezzaOriginale = $larghezzaOriginale - $deltaAlt;
-        $nuovaAltezzaOriginale = $altezzaOriginale - $deltaAlt;
+        return;
+    }
+
+   if (!$existing_product_id)
+    {
+        foreach ($images as $image_url) {
+            $dont_add = false;
+            try {
+                $destination = $dir_path . $sku . '_image_' . $i . '.jpeg';
+                $new_dest = $new_dir_path . $sku . '_image_' . $i . '.jpeg';
+                $final_dest = $webp_dir . $sku . '_image_' . $i . '.WEBP';
+
+                $image_content = file_get_contents($image_url);
+                // Determine image format
+                $image_info = exif_imagetype($image_url);
+                if ($image_info !== false) {
+                    // If image is not JPEG, convert it to JPEG
+                    if ($image_info !== IMAGETYPE_JPEG) {
+                        $img = new Imagick();
+                        $img->readImageBlob($image_content);
+                        $img->setImageFormat('jpeg');
+                        // Set white background to handle transparency
+                        $img->setImageBackgroundColor('white');
+                        $img = $img->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+                        $image_content = $img->getImageBlob();
+                        $img->destroy();
+                    }
+                } else {
+                    throw new ImagickException('Impossibile determinare il tipo di immagine.');
+                }
+
+                // Create Imagick object from image content
+                $imagick = new Imagick();
+                $imagick->readImageBlob($image_content);
+
+                // Write image content to destination using Imagick
+                $imagick->writeImage($destination);
+                $imagick->destroy();
+
+                // Process image with aggiungiBandeBianche function
+                $i++;
+            } catch (ImagickException $e) {
+               $ch = curl_init($image_url);
+				curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+				curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+				$image_content = curl_exec($ch);
+			
+				if (curl_errno($ch)) {
+					error_log('Errore durante il download dell\'immagine: ' . curl_error($ch));
+				} else {
+					curl_close($ch);
+
+                    try {
+                        // Get image format
+                        error_log("salvato con altro ". $destination);
+                        $image_info = exif_imagetype($image_url);
+                        if ($image_info === false) {
+                            throw new Exception('Impossibile determinare il tipo di immagine.');
+                        }
+
+                        // Check image format and process accordingly
+                        if ($image_info === IMAGETYPE_JPEG) {
+                            if(!file_put_contents($destination, $image_content))
+                            {
+                                throw new Exception('Impossibile putcontent.');
+                            }
+                        } else {
+                            $immagine_originale = imagecreatefromstring($image_content);
+                            if ($immagine_originale === false) {
+                                throw new Exception('Impossibile convertire l\'immagine in JPEG.');
+                            }
+                            // Save image as JPEG
+                            imagejpeg($immagine_originale, $destination, 80);
+                            imagedestroy($immagine_originale);
+                        }
+
+                        $i++;
+                    } catch (Exception $e) {
+                        error_log('Error processing image: ' . $e->getMessage());
+                        // Handle exception appropriately (e.g., log error, skip image)
+                        $dont_add = true;
+                    }
+
+				}
+            }
+            if(!$dont_add)
+            {
+                $converted_images[] = aggiungiBandeBianche($destination, $new_dest, $larghezzaSet, $altezzaSet, $final_dest, $webp_dir, $i);
+            }
+        }
+
+    }
+    if(!empty($converted_images))
+    {
+        inserisci_prodotto($prodotto, $webp_dir, $converted_images, $setup);
     }
     else
     {
-        $nuovaLarghezzaOriginale = $larghezzaOriginale - $deltaLarg;
-        $nuovaAltezzaOriginale = $altezzaOriginale - $deltaLarg;
+        if($existing_product_id)
+        {
+                inserisci_prodotto($prodotto, $webp_dir, array(), $setup);
+        }
+        else
+        {
+            $falliti = $wpdb->get_var("SELECT falliti FROM $update_table");
+            $new_falliti = $falliti + 1;
+            $wpdb->query("UPDATE $update_table SET falliti = $new_falliti");
+        }
+    }
+ }
+ 
+function aggiungiBandeBianche($percorsoImmagineInput, $percorsoImmagineOutput, $larghezzaSet, $altezzaSet, $final_dest, $webp_dir, $i) {
+    
+    if ($i !== 1) {
+        return convertiJPEGtoWebP($percorsoImmagineInput, $final_dest, 80, $webp_dir);
     }
 
-    $immagineOriginale = imagecreatefromjpeg($percorsoImmagineInput);
-    $immagineRidimensionata = imagecreatetruecolor($nuovaLarghezzaOriginale, $nuovaAltezzaOriginale);
-    imagecopyresampled($immagineRidimensionata, $immagineOriginale, 0, 0, 0, 0, $nuovaLarghezzaOriginale, $nuovaAltezzaOriginale, $larghezzaOriginale, $altezzaOriginale);
+    $jpegImage = new Imagick($percorsoImmagineInput);
 
-    $nuovaImmagine = imagecreatetruecolor($larghezzaSet, $altezzaSet);
-    $coloreBianco = imagecolorallocate($nuovaImmagine, 255, 255, 255);
-    imagefilledrectangle($nuovaImmagine, 0, 0, $larghezzaSet, $altezzaSet, $coloreBianco);
+    // Ottieni le dimensioni originali dell'immagine
+    $larghezzaOriginale = $jpegImage->getImageWidth();
+    $altezzaOriginale = $jpegImage->getImageHeight();
 
-    $posizioneInizio = $larghezzaSet;
-    $posizioneFine = $larghezzaSet + $nuovaLarghezzaOriginale;
+    if($larghezzaOriginale > $altezzaOriginale)
+    {
+        $nuovaLarghezza = $larghezzaSet;
+        $delta = $larghezzaOriginale - $larghezzaSet;
+        $deltaPerc = 1 - ($delta / $larghezzaOriginale);
+        $nuovaAltezza = $altezzaOriginale * $deltaPerc;
+    }
+    else
+    {
+        $nuovaAltezza = $altezzaSet;
+        $delta = $altezzaOriginale - $altezzaSet;
+        $deltaPerc = 1 - ($delta / $altezzaOriginale);
+        $nuovaLarghezza = $larghezzaOriginale * $deltaPerc;
+    }
+    $x = ($larghezzaSet - $nuovaLarghezza) / 2;
+    $y = ($altezzaSet - $nuovaAltezza) / 2;
 
+    $jpegImage->resizeImage($nuovaLarghezza, $nuovaAltezza, Imagick::FILTER_LANCZOS, 1);
 
-    imagecopy($nuovaImmagine, $immagineRidimensionata, 0, 0, 0, 0, $larghezzaSet, $altezzaSet);
+    $nuovaImmagine = new Imagick();
+    $nuovaImmagine->newImage($larghezzaSet, $altezzaSet, 'white');
 
-    imagejpeg($nuovaImmagine, $percorsoImmagineOutput, 80); // 80 è la qualità della compressione JPEG (puoi regolarla secondo le tue preferenze)
+    // Copia l'immagine originale sulla nuova immagine con sfondo bianco
+    $nuovaImmagine->compositeImage($jpegImage, Imagick::COMPOSITE_OVER, $x, $y);
 
-    imagedestroy($immagineOriginale);
-    imagedestroy($nuovaImmagine);
+    // Salva l'immagine risultante in formato JPEG
+    $nuovaImmagine->setImageFormat('jpeg');
+    $nuovaImmagine->setImageCompressionQuality(100);
+    $nuovaImmagine->writeImage($percorsoImmagineOutput);
 
-    return(convertiJPEGtoWebP($percorsoImmagineOutput, $final_dest, 80, $webp_dir));
+    // Distruggi gli oggetti Imagick
+    $jpegImage->destroy();
+    $nuovaImmagine->destroy();
+    return convertiJPEGtoWebP($percorsoImmagineOutput, $final_dest, 80, $webp_dir);
 }
 
-
-function convertiJPEGtoWebP($inputPath, $outputPath, $qualita = 80, $webp_dir) {
-    if (!function_exists('imagewebp')) {
-        die("Il tuo server non supporta WebP. Assicurati che il modulo GD sia configurato con il supporto WebP.");
+function convertiJPEGtoWebP($inputPath, $outputPath, $qualita, $webp_dir) {
+    // Verifica se Imagick è disponibile
+    if (!class_exists('Imagick')) {
+        die("La conversione in WebP richiede la libreria Imagick. Assicurati che sia installata sul tuo server.");
     }
-    $jpegImage = imagecreatefromjpeg($inputPath);
+ 
+    // Crea un oggetto Imagick dall'immagine JPEG
+    $jpegImage = new Imagick($inputPath);
 
-    if (!$jpegImage) {
-        die("Impossibile aprire l'immagine JPEG.");
+    // Controlla se l'immagine ha trasparenza
+    if ($jpegImage->getImageAlphaChannel()) {
+        // Abilita la trasparenza
+        $jpegImage->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
+        $jpegImage->setImageBackgroundColor('transparent');
+        $jpegImage = $jpegImage->flattenImages();
     }
-    if (!imagewebp($jpegImage, $outputPath, $qualita)) {
+
+    // Imposta la qualità della compressione
+    $jpegImage->setImageCompressionQuality($qualita);
+
+    // Salva l'immagine WebP
+    if (!$jpegImage->writeImage($outputPath)) {
         die("Errore durante il salvataggio dell'immagine WebP.");
     }
 
-    imagedestroy($jpegImage);
-    return ($outputPath);
+    // Distrugge l'oggetto Imagick
+    $jpegImage->destroy();
+
+    return $outputPath;
 }
 
 function upload_image_to_media_library($image_path, $WEBP_directory, $prodotto) {
     $upload_dir = wp_upload_dir();
     $image_file = $upload_dir['path'] . '/' . basename($image_path);
     
-    // Copia l'immagine nella directory di upload di WordPress
     if (copy($image_path, $image_file))
     {
         $attachment = array(
-            'post_mime_type' => 'image/jpeg', // Modifica il tipo MIME se necessario
+            'post_mime_type' => 'image/jpeg', 
             'post_title' => basename($image_file),
             'post_content' => '',
             'post_status' => 'inherit'
